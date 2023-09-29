@@ -80,7 +80,7 @@ def obtener_datos():
         group by cli.CodCliente,art.CodArticulo
         order by cli.CodCliente
     """, cnxn)
-    loaded_data.to_csv('new_edited_loaded_data.csv', index=False)
+    #loaded_data.to_csv('new_edited_loaded_data.csv', index=False)
     
 
     if loaded_data is None:
@@ -91,13 +91,13 @@ def obtener_datos():
     ###ACA ARRANCARIA PREPROCCES
     
 
-    # Create a mapping for CodCliente using pandas factorize
+    # Creando index para CodCliente usando factorize de pandas
     loaded_data['CodCliente_idx'], _ = pd.factorize(loaded_data['CodCliente'])
     
-    # Create a mapping for CodArticu using pandas factorize
+    # Creando index para CodArticu
     loaded_data['CodArticu_idx'], _ = pd.factorize(loaded_data['CodArticu'])
 
-    #loaded_data.to_csv('edited_loaded_data.csv', index=False)
+    #loaded_data.to_csv('new_edited_loaded_data.csv', index=False)
 
     # Ensure there are no missing or invalid values in the dataset
     missing_values = loaded_data.isnull().values.any()
@@ -122,8 +122,8 @@ def obtener_datos():
     
     ##ACA ARRANCARIA PREPROCES2DICT
     
-    # Convert 'CodArticu' column to numeric (if it contains numeric values)
-    loaded_data['CodArticu'] = pd.to_numeric(loaded_data['CodArticu'], errors='coerce')
+    # Convierto 'CodArticu' en numerico 
+    loaded_data['CodArticu'] = pd.to_numeric(loaded_data['CodArticu'], errors='coerce') 
 
     # Create a StandardScaler instance for 'Cantidad'
     scaler = StandardScaler()
@@ -154,29 +154,31 @@ def obtener_datos():
         return "Test_Data tiene nan values. checkear"
 
 
-    # Initialize dictionaries to ensure all users are present in both sets
+    # Asegurandonos que train y test tengan los mismos CodCliente
     all_users = set(loaded_data.CodCliente_idx.unique())
     users_in_train = set(df_train.CodCliente_idx.unique())
     users_in_test = set(df_test.CodCliente_idx.unique())
     missing_users_in_train = all_users - users_in_train
     missing_users_in_test = all_users - users_in_test
 
-    # Add missing users to the training set
+    # Agregando CodClientes faltantes a training set
     missing_users_data = loaded_data[loaded_data.CodCliente_idx.isin(missing_users_in_train)]
     df_train = pd.concat([df_train, missing_users_data])
 
-    # Add missing users to the test set
+    # Agregando CodClientes faltantes a test set
     missing_users_data = loaded_data[loaded_data.CodCliente_idx.isin(missing_users_in_test)]
     df_test = pd.concat([df_test, missing_users_data])
 
-    # Now df_train and df_test contain all users
-    df_train.to_csv('train_data.csv', index=False)
-    df_test.to_csv('test_data.csv', index=False)
+    # Ahora df_train and df_test tienen mismos CodCliente
+    #df_train.to_csv('train_data.csv', index=False)
+    #df_test.to_csv('test_data.csv', index=False)
     
-     # Create a mapping from movie index to movie ID
-    movie_idx_to_movie_id = {}
-    for index, row in loaded_data.iterrows():
-        movie_idx_to_movie_id[row['CodArticu_idx']] = row['CodArticu']
+    # Creando mapping para CodArticu_idx a CodArticu efficiently
+    codarticu_idx_to_codarticu = dict(zip(loaded_data['CodArticu_idx'], loaded_data['CodArticu']))
+        
+    # Saving the mapping as a JSON file
+    with open('codarticu_idx_to_codarticu.json', 'w') as f:
+        json.dump(codarticu_idx_to_codarticu, f)
 
 
     ###ACA ARRANCA MF_KERAS
@@ -254,44 +256,47 @@ async def recommend_top_10_items_for_user(CodCliente: int, top_N: int = 10):
             df_train = pd.read_csv('train_data.csv')
             mu = df_train.Cantidad.mean()
         
-        # Check if CodCliente exists in loaded_data
+        # Se fija si existe el CodCliente ingresado
         if CodCliente not in loaded_data['CodCliente'].values:
-            return "Ese CodCliente no existe."  # Return a message indicating the UserID is not valid
+            return "Ese CodCliente no existe."  
 
-        # Map the user ID to its corresponding index
+        # Mapea el CodCliente ingresado con su respectivo indice
         user_idx = loaded_data[loaded_data['CodCliente'] == CodCliente]['CodCliente_idx'].values[0]
 
-        # Get the indices of all movies
+        # Busca los indices de todas los articulos
         CodArticu_indices = np.arange(M)
 
-        # Create an array with the user index repeated for all movies
+        # Crea array con el CodCliente ingresado y todas los articulos
         user_array = np.array([user_idx] * M)
 
-        # Predict movie ratings for the user
+        # Predice cuan buena es la recomendacion
         predicted_ratings = trained_model.predict([user_array, CodArticu_indices]) + mu
 
+        # Carga diccionario CodArticu_idx - CodArticu
+        with open('codarticu_idx_to_codarticu.json', 'rb') as f:
+            codarticu_idx_to_codarticu = json.load(f)
 
-
-        # Create a DataFrame with movie indices, predicted ratings, and movie IDs
-        movie_ratings = pd.DataFrame({
-            'movie_index': CodArticu_indices,
+        # Crea dataframe con CodArticu_indices, predicted ratings, and CodArticu
+        codarticu_ratings = pd.DataFrame({
+            'CodArticu_indices': CodArticu_indices,
             'predicted_rating': predicted_ratings.flatten(),
-            'movie_id': [movie_idx_to_movie_id[i] for i in CodArticu_indices]
+            'CodArticu': [codarticu_idx_to_codarticu[str(i)] for i in CodArticu_indices]
         })
 
-        # Sort the DataFrame by predicted ratings in descending order
-        top_movie_ratings = movie_ratings.sort_values(by='predicted_rating', ascending=False)
 
-        # Get the top N recommended movie IDs
-        top_movie_ids = top_movie_ratings.head(top_N)['movie_id'].values
+        # Lo ordena en orden descendente
+        top_codarticu_ratings = codarticu_ratings.sort_values(by='predicted_rating', ascending=False)
 
-        recommended_movie_ids = top_movie_ids
+        # Agarra los mejores 10
+        top_codarticu_ids = top_codarticu_ratings.head(top_N)['CodArticu'].values
 
-        print("Top {} recommended movies for user (CodCliente) {}:".format(top_N, CodCliente))
-        for movie_id in recommended_movie_ids:
-            print("Movie ID:", movie_id)
+        recommended_codarticu_ids = top_codarticu_ids
+
+        print("Top {} articulos recomendados para cliente (CodCliente) {}:".format(top_N, CodCliente))
+        for codarticu_id in recommended_codarticu_ids:
+            print("CodArticu:", codarticu_id)
         
-        return "salio por fin"
+        return "listas las recommendaciones"
 
 
 if __name__ == '__main__':

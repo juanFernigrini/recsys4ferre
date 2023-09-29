@@ -84,7 +84,6 @@ def obtener_datos():
 	  left join F_CENTRAL.dbo.VenFer_PedidoReng as reng
               on reng.CodCliente = cli.CodCliente
               and reng.CodArticu = art.CodArticulo
-        where cli.codCliente in (1176,186,2001,36,35,78,252,154,145,112,201,203)
         group by cli.CodCliente,art.CodArticulo
         order by cli.CodCliente
     """, cnxn)
@@ -424,7 +423,7 @@ async def recommend_top_10_items_for_user(CodCliente: int, top_N: int = 10):
             print("CodArticu:", codarticu_id)
 
 
-        return "listas las recommendaciones"
+        return "listas las recommendaciones"    
 
 
 if __name__ == '__main__':
