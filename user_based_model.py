@@ -39,6 +39,8 @@ import traceback
 
 from sortedcontainers import SortedList
 
+from fastapi import FastAPI, Query
+from fastapi.exceptions import HTTPException
 
 hostName = "localhost"
 serverPort = 8081
@@ -301,8 +303,15 @@ user_based_executed = False
 def user_based_data():
     global loaded_data
     global count
-    global trained_model
     global user_based_executed
+    global loaded_data
+    global CodCliente2CodArticu
+    global CodArticu2CodCliente
+    global CodClienteCodArticu2rating
+    global neighbors
+    global averages
+    global deviations
+    global predict
 
     with open('CodCliente2CodArticu.json', 'rb') as f:
         CodCliente2CodArticu = pickle.load(f)
@@ -428,18 +437,63 @@ async def user_based_route():
             traceback.print_exc()
             return f"Error: {str(e)}"
     else:
-        return "mf_keras_deep ya fue completado. Use /reset_mf_keras_flag para correrlo de nuevo."
+        return "user_based ya fue completado. Use /reset_user_based_flag para correrlo de nuevo."
 
     
 
 
 # Para reiniciar flag
-@app.get("/reset_mf_keras_flag")
-async def reset_mf_keras_flag():
-    global mf_keras_deep_executed
-    mf_keras_deep_executed = False
-    return "mf_keras_deep_executed flag reiniciada. Puede volver a correr /mf_keras_deep."
+@app.get("/reset_user_based_flag")
+async def reset_user_based_flag():
+    global user_based_executed
+    user_based_executed = False
+    return "user_based_executed flag reiniciada. Puede volver a correr /user_based"
+
+
+@app.get("/consulta/{CodCliente}")
+async def get_recommendations(CodCliente: int):
+    global loaded_data
+    global CodCliente2CodArticu
+    global CodArticu2CodCliente
+    global CodClienteCodArticu2rating
+    global neighbors
+    global averages
+    global deviations
+
+    try:
+        if CodCliente not in loaded_data['CodCliente'].values:
+            return "Ese CodCliente no existe." 
+
+        # Find the top-K recommended items for the user
+        K = 10  # Adjust this value as needed
+        user_idx = CodCliente
+        recommendations = []
+
+        for j in range(len(averages)):
+            if j not in CodCliente2CodArticu[user_idx]:
+                prediction = predict(user_idx, j)
+                recommendations.append((j, prediction))
+
+        recommendations = sorted(recommendations, key=lambda x: x[1], reverse=True)[:K]
+
+        # Convert item indices back to actual item IDs
+        recommended_item_ids = [CodArticu2CodCliente[item_idx] for item_idx, _ in recommendations]
+
+        return {"user_id": CodCliente, "recommended_items": recommended_item_ids}
+
+    except Exception as e:
+        return HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == '__main__':
     uvicorn.run(app, host=hostName, port=serverPort)
+
+
+# El resultado es una respuesta JSON. Proporciona recomendaciones para un usuario específico según su ID.
+#"recommended_items": Este es un array que contiene los elementos recomendados para el usuario. 
+# Cada elemento en este arreglo representa una lista de elementos recomendados.
+# Por ej: [78, 145, 154, 201, 186, 1176, 252, 2001, 112]: Esta es la primera lista de elementos recomendados. 
+# La respuesta JSON proporciona varias listas de elementos recomendados, cada una con un conjunto diferente de IDs de elementos. 
+# Estas listas representan diferentes conjuntos de recomendaciones para el usuario.
+# Los elementos específicos en cada lista son las recomendaciones generadas por tu sistema de recomendación para el usuario con ID 35. 
+# Los usuarios pueden recibir diferentes recomendaciones según sus preferencias e interacciones con el sistema.
