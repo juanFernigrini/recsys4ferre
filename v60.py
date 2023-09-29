@@ -50,13 +50,42 @@ hits = 0
 trained_model = None
 loaded_data = None
 
+data_items = None
+data_users = None
+
 def obtener_datos():
 
-    global loaded_data
+    global loaded_data, data_items, data_users, user_features, item_features
     if loaded_data is None:
         # Load data if not already loaded
         print("Loading data...")
         loaded_data = pd.read_csv('purchase_history.csv')
+        print("Listo loaded_data...")
+
+    if data_items is None:
+        # Load data if not already loaded
+        print("Loading data...")
+        data_items = pd.read_csv('data_items.csv')
+        print("Listo data_items...")
+
+    if data_users is None:
+        # Load data if not already loaded
+        print("Loading data...")
+        data_users = pd.read_csv('data_users.csv')
+        print("Listo data_users...")
+
+    # Load user features and merge with user data based on 'CodCliente'
+    user_features = data_users
+    loaded_data = pd.merge(loaded_data, user_features, on='CodCliente', how='left')
+
+    # Load item features and merge with item data based on 'CodArticu'
+    item_features = data_items
+    loaded_data = pd.merge(loaded_data, item_features, on='CodArticu', how='left')
+
+    # Drop the 'Unnamed: 0_x' and 'Unnamed: 0_y' columns
+    loaded_data.drop(['Unnamed: 0_x', 'Unnamed: 0_y'], axis=1, inplace=True)
+
+
     return "Data obtained"
     
     global  df
@@ -81,10 +110,38 @@ async def obtener_data():
     return obtener_datos()
 
 def preprocess_data():
-    global loaded_data
+    global loaded_data, user_feature_columns, item_feature_columns, data_items, data_users, user_features, item_features
     if loaded_data is None:
         # Load data if not already loaded
         loaded_data = pd.read_csv('purchase_history.csv')
+    
+        if data_items is None:
+            # Load data if not already loaded
+            data_items = pd.read_csv('data_items.csv')
+            item_features = data_items
+            loaded_data = pd.merge(loaded_data, item_features, on='CodArticu', how='left')
+        
+        if data_users is None:
+            # Load data if not already loaded
+            data_users = pd.read_csv('data_users.csv')
+            user_features = data_users
+            loaded_data = pd.merge(loaded_data, user_features, on='CodCliente', how='left')
+
+
+        # Drop the 'Unnamed: 0_x' and 'Unnamed: 0_y' columns
+        loaded_data.drop(['Unnamed: 0_x', 'Unnamed: 0_y', 'LimiteCredito', 'ArticuloPatron'], axis=1, inplace=True)
+
+    # Specify data types for user feature columns
+    user_feature_columns = ['CodigoPostal', 'Vendedor', 'Zona']
+    for column in user_feature_columns:
+        loaded_data[column] = loaded_data[column].astype(str)  # Convert to string, adjust as needed
+
+    # Specify data types for item feature columns
+    item_feature_columns = {'PrecioCosto': float, 'PrecioUnitario': float}
+
+    for column, dtype in item_feature_columns.items():
+        loaded_data[column] = loaded_data[column].astype(dtype)  # Convert to the specified data type
+
 
     # Create a mapping for CodCliente using pandas factorize
     loaded_data['CodCliente_idx'], _ = pd.factorize(loaded_data['CodCliente'])
@@ -130,12 +187,16 @@ def preprocess2dict_data():
     #global count
     global df_test
     global df_train
+    global M
+    global N
     global movie_idx_to_movie_id
     # load in the data
 
     if loaded_data is None:
         loaded_data = pd.read_csv('edited_loaded_data.csv')
 
+    N = loaded_data.CodCliente_idx.max() + 1 # number of CodClientes
+    M = loaded_data.CodArticu_idx.max() + 1 # number of CodArticu
 
     # Convert 'CodArticu' column to numeric (if it contains numeric values)
     loaded_data['CodArticu'] = pd.to_numeric(loaded_data['CodArticu'], errors='coerce')
@@ -194,7 +255,8 @@ def preprocess2dict_data():
     missing_users_data = loaded_data[loaded_data.CodCliente_idx.isin(missing_users_in_test)]
     df_test = pd.concat([df_test, missing_users_data])
 
-    # Now df_train and df_test contain all users
+    print("Now df_train and df_test contain all users")
+
     df_train.to_csv('train_data.csv', index=False)
     df_test.to_csv('test_data.csv', index=False)
     
@@ -234,11 +296,12 @@ mf_keras_deep_executed = False
 
 def mf_keras_deep_data():
     global loaded_data
-    global count
+    #global count
     global mu
     global trained_model
     global mf_keras_deep_executed
     global M
+    global user_feature_columns, item_feature_columns
 
     if loaded_data is None:
         
@@ -258,50 +321,67 @@ def mf_keras_deep_data():
     M = loaded_data.CodArticu_idx.max() + 1 # number of movies
 
     # initialize variables
-    K = 40 # latent dimensionality
+    K = 30 # latent dimensionality
     mu = df_train.Cantidad.mean()
-    epochs = 5
-    reg = 0.00001 # regularization penalty
+    epochs = 1
+    reg = 0.0001 # regularization penalty
 
 
     # keras model
     u = Input(shape=(1,))
     m = Input(shape=(1,))
+
+    # Input layers for user and item features
+    u_features = Input(shape=(len(user_feature_columns),), name='user_features')
+    m_features = Input(shape=(len(item_feature_columns),), name='item_features')
+
+    # User and item feature embeddings
+    u_features_embedding = Dense(K)(u_features)
+    m_features_embedding = Dense(K)(m_features)
+
+    # Concatenate user and item embeddings
     u_embedding = Embedding(N, K)(u) # (N, 1, K)
     m_embedding = Embedding(M, K)(m) # (N, 1, K)
     u_embedding = Flatten()(u_embedding) # (N, K)
     m_embedding = Flatten()(m_embedding) # (N, K)
-    x = Concatenate()([u_embedding, m_embedding]) # (N, 2K)
+    x = Concatenate()([u_embedding, m_embedding, u_features_embedding, m_features_embedding]) # (N, 4K)
 
     # the neural network
     x = Dense(400)(x)
     # x = BatchNormalization()(x)
     x = Activation('relu')(x)
-    x = Dropout(0.5)(x)
+    # x = Dropout(0.5)(x)
     # x = Dense(100)(x)
-    x = BatchNormalization()(x)
+    # x = BatchNormalization()(x)
     # x = Activation('relu')(x)
     x = Dense(1)(x)
 
-    model = Model(inputs=[u, m], outputs=x)
+    model = Model(inputs=[u, m, u_features, m_features], outputs=x)
     model.compile(
     loss='mse',
     # optimizer='adam',
     # optimizer=Adam(lr=0.01),
-    optimizer=SGD(lr=0.0005, momentum=0.3),
+    optimizer=SGD(lr=0.0002, momentum=0.9),
     metrics=['mse'],
     )
 
+    user_features_train = [df_train[column].values for column in user_feature_columns]
+    item_features_train = [df_train[column].values for column in item_feature_columns]
+
+    user_features_test = [df_test[column].values for column in user_feature_columns]
+    item_features_test = [df_test[column].values for column in item_feature_columns]
+
     r = model.fit(
-    x=[df_train.CodCliente_idx.values, df_train.CodArticu_idx.values],
-    y=df_train.Cantidad.values - mu,
-    epochs=epochs,
-    batch_size=128,
-    validation_data=(
-        [df_test.CodCliente_idx.values, df_test.CodArticu_idx.values],
-        df_test.Cantidad.values - mu
+        x=[df_train.CodCliente_idx.values, df_train.CodArticu_idx.values, user_features_train, item_features_train],
+        y=df_train.Cantidad.values - mu,
+        epochs=epochs,
+        batch_size=128,
+        validation_data=(
+            [df_test.CodCliente_idx.values, df_test.CodArticu_idx.values, user_features_test, item_features_test],
+            df_test.Cantidad.values - mu
+        )
     )
-    )
+
         
     trained_model = model
 
@@ -347,7 +427,6 @@ async def mf_keras_deep_route():
             return f"Error: {str(e)}"
     else:
         return "mf_keras_deep has already been completed. Use /reset_mf_keras_flag again to re-run."
-
     
 
 
@@ -360,19 +439,14 @@ async def reset_mf_keras_flag():
 
 @app.get("/consulta/{CodCliente}")
 async def recommend_top_10_items_for_user(CodCliente: int, top_N: int = 10):
-        global trained_model, loaded_data, M, df_train, mu
+        global trained_model, loaded_data
 
         if trained_model is None:
             trained_model = load_model('your_pretrained_model.h5')
-            loaded_data = pd.read_csv('new_edited_loaded_data.csv')
-            M = loaded_data.CodArticu_idx.max() + 1 # number of movies
-            df_train = pd.read_csv('train_data.csv')
-            mu = df_train.Cantidad.mean()
         
-        # Check if CodCliente exists in loaded_data
-        if CodCliente not in loaded_data['CodCliente'].values:
-            return "Ese CodCliente no existe."  # Return a message indicating the UserID is not valid
-
+        if loaded_data is None:
+            loaded_data = pd.read_csv('edited_loaded_data.csv')
+        
         # Map the user ID to its corresponding index
         user_idx = loaded_data[loaded_data['CodCliente'] == CodCliente]['CodCliente_idx'].values[0]
 

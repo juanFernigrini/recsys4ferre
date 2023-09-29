@@ -1,8 +1,7 @@
 ConsultaData.csv
 edited_purchase_history.csv
-codarticu_idx_to_codarticu.json
+movie_idx_to_movie_id.json
 test_data.csv
 train_data.csv
 your_pretrained_model.h5
-loaded_data.csv
-new_edited_loaded_data.csv
+edited_loaded_data.csv
