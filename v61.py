@@ -216,13 +216,12 @@ def preprocess2dict_data():
     df_train.to_csv('train_data.csv', index=False)
     df_test.to_csv('test_data.csv', index=False)
     
-    # Creando mapping para CodArticu_idx a CodArticu
-    codarticu_idx_to_codarticu = {}
-    for index, row in loaded_data.iterrows():
-        codarticu_idx_to_codarticu[row['CodArticu_idx']] = row['CodArticu']
-
-    with open('codarticu_idx_to_codarticu.json', 'wb') as f:
-        pickle.dump(codarticu_idx_to_codarticu, f)
+    # Creando mapping para CodArticu_idx a CodArticu efficiently
+    codarticu_idx_to_codarticu = dict(zip(loaded_data['CodArticu_idx'], loaded_data['CodArticu']))
+        
+    # Saving the mapping as a JSON file
+    with open('codarticu_idx_to_codarticu.json', 'w') as f:
+        json.dump(codarticu_idx_to_codarticu, f)
 
     return df_test, df_train, codarticu_idx_to_codarticu
 
@@ -402,13 +401,13 @@ async def recommend_top_10_items_for_user(CodCliente: int, top_N: int = 10):
 
         # Carga diccionario CodArticu_idx - CodArticu
         with open('codarticu_idx_to_codarticu.json', 'rb') as f:
-            codarticu_idx_to_codarticu = pickle.load(f)
+            codarticu_idx_to_codarticu = json.load(f)
 
         # Crea dataframe con CodArticu_indices, predicted ratings, and CodArticu
         codarticu_ratings = pd.DataFrame({
             'CodArticu_indices': CodArticu_indices,
             'predicted_rating': predicted_ratings.flatten(),
-            'CodArticu': [codarticu_idx_to_codarticu[i] for i in CodArticu_indices]
+            'CodArticu': [codarticu_idx_to_codarticu[str(i)] for i in CodArticu_indices]
         })
 
 
